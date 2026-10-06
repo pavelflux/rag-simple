@@ -1,0 +1,12 @@
+# Talking to Claude (step 5+)
+anthropic
+# Loads ANTHROPIC_API_KEY from the .env file
+python-dotenv
+# Reading PDF files (step 2)
+pypdf
+# Local embedding model (step 3) - pulls in PyTorch, so the first install is big
+sentence-transformers
+# Vector math for our from-scratch search (step 4)
+numpy
+# Persistent vector database (step 6)
+chromadb

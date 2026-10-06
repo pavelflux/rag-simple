@@ -1,0 +1,60 @@
+LOOPY ROBOTS - FREQUENTLY ASKED QUESTIONS
+
+How much weight can a Loopy L1 carry?
+
+The Loopy L1 can lift and carry shelving units weighing up to 600 kg, including
+the shelf itself. The Loopy L2 platform carries up to 400 kg, because some of
+its capacity is used by the robotic arm. The L2 arm can pick individual items
+weighing up to 3 kg.
+
+How fast do the robots move?
+
+Both models travel at up to 2 metres per second on open floor. In areas marked
+as shared with people, Loopcloud automatically limits them to 1 metre per
+second.
+
+How long does the battery last?
+
+A fully charged Loopy L1 runs for about 10 hours of normal operation. The L2
+runs for about 8 hours because the arm uses extra power. Robots return to a
+charging dock on their own when the battery drops below 20%. A full charge
+takes about 90 minutes.
+
+What does the warehouse floor need to look like?
+
+The floor must be flat and sealed concrete or epoxy, with height differences of
+no more than 5 mm per 2 metres. Robots navigate using small QR-code stickers
+placed on the floor in a grid, roughly every 1.2 metres. No Wi-Fi dead zones
+are allowed in the robot area.
+
+How long does a typical deployment take?
+
+A typical deployment of 50 robots takes 6 to 10 weeks from signed contract to
+go-live. This includes a site survey, floor preparation, sticker installation,
+software configuration, and two weeks of supervised trial runs.
+
+What is the warranty?
+
+Every Loopy robot comes with a 2-year standard warranty covering parts and
+labour. Customers can buy an extended warranty that brings coverage to 5 years.
+The warranty does not cover damage caused by forklifts, water, or operating on
+floors that do not meet the floor requirements above.
+
+How do I get support?
+
+Customers with a Loopcloud subscription get 24/7 phone support and a target
+response time of 1 hour for critical issues (a stopped fleet). Non-critical
+issues are answered within 1 business day. Support can be reached at
+support@brightloop.example or through the help button in Loopcloud.
+
+Can Loopy robots work alongside forklifts?
+
+Yes, but forklift lanes must be marked as restricted zones in Loopcloud. Robots
+will never enter a restricted zone. We recommend physical barriers where
+forklifts and robots cross frequently.
+
+Is Loopcloud available on-premises?
+
+Loopcloud normally runs in our cloud, hosted in the EU (Frankfurt). Customers
+with strict data rules can buy an on-premises edition, which requires a
+dedicated server in the warehouse and costs 30% more per robot per year.
