@@ -3,31 +3,66 @@
 Usage:
     python rag.py search "how many vacation days do I get?" [-k 4] [--full]
     python rag.py ask "how many vacation days do I get?" [-k 4] [--show-prompt]
+    python rag.py --rebuild search "..."    # throw away the saved index and rebuild it
 """
 
-# Load .env before anything else, so every library sees its variables when imported
-# (e.g. Hugging Face settings read by sentence-transformers, ANTHROPIC_API_KEY).
-from dotenv import load_dotenv
-
 import argparse
+import hashlib
 from functools import cached_property
 
+from dotenv import load_dotenv
+
+from chroma_store import ChromaStore
 from embeddings import Embedder
 from generator import Answer, Generator
-from ingest import Chunker, DocumentLoader
-from vector_store import SearchResult, VectorStore
+from ingest import Chunker, Document, DocumentLoader
+from vector_store import SearchResult
 
 
 class RAG:
     """Ties the pieces together: load → chunk → embed → store, then search and answer."""
 
-    def __init__(self):
+    def __init__(self, rebuild: bool = False):
         self.embedder = Embedder()
-        self.store = VectorStore()
+        self.chunker = Chunker()
+        self.store = ChromaStore()  # step 4's VectorStore lived in memory; this one is on disk
+        self.sync_index(rebuild)
 
-        # Indexing. For now this runs on every start; step 6 saves it to disk.
-        chunks = Chunker().chunk(DocumentLoader().load())
-        self.store.add(chunks, self.embedder.embed([c.text for c in chunks]))
+    def sync_index(self, rebuild: bool = False) -> None:
+        """Make the saved index match ./docs, re-embedding only files that changed."""
+        if rebuild:
+            self.store.clear()
+
+        documents = DocumentLoader().load()
+        indexed = self.store.indexed_hashes()  # {file: hash when it was indexed}
+        changed = False
+
+        for doc in documents:
+            doc_hash = self._hash(doc)
+            if indexed.get(doc.source) == doc_hash:
+                continue  # unchanged since last run: keep its stored vectors
+
+            status = "changed" if doc.source in indexed else "new"
+            self.store.delete_source(doc.source)  # drop the old chunks, if any
+            chunks = self.chunker.chunk([doc])
+            self.store.add(chunks, self.embedder.embed([c.text for c in chunks]), doc_hash)
+            print(f"Indexed {doc.source} ({status}, {len(chunks)} chunks)")
+            changed = True
+
+        # Files that were indexed before but no longer exist in ./docs.
+        for source in indexed.keys() - {doc.source for doc in documents}:
+            self.store.delete_source(source)
+            print(f"Removed {source} (file deleted)")
+            changed = True
+
+        if not changed:
+            print(f"Index up to date ({len(self.store)} chunks)")
+        print()
+
+    @staticmethod
+    def _hash(doc: Document) -> str:
+        """A fingerprint of the document's text: any edit gives a completely different hash."""
+        return hashlib.sha256(doc.text.encode("utf-8")).hexdigest()
 
     @cached_property
     def generator(self) -> Generator:
@@ -59,6 +94,7 @@ def print_results(results: list[SearchResult], full: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ask questions about the documents in ./docs")
+    parser.add_argument("--rebuild", action="store_true", help="re-index all documents from scratch")
     commands = parser.add_subparsers(dest="command", required=True)
 
     search = commands.add_parser("search", help="show the chunks most similar to a query")
@@ -72,7 +108,7 @@ def main() -> None:
     ask.add_argument("--show-prompt", action="store_true", help="print the exact prompt sent")
 
     args = parser.parse_args()
-    rag = RAG()
+    rag = RAG(rebuild=args.rebuild)
 
     if args.command == "search":
         print(f"Searching {len(rag.store)} chunks for: {args.query!r}\n")
