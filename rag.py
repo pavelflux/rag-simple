@@ -3,6 +3,8 @@
 Usage:
     python rag.py search "how many vacation days do I get?" [-k 4] [--full]
     python rag.py ask "how many vacation days do I get?" [-k 4] [--show-prompt]
+    python rag.py agent "how many vacation days do I get?"
+    python rag.py compare "how many vacation days do I get?"    # ask vs agent, side by side
     python rag.py --rebuild search "..."    # throw away the saved index and rebuild it
 """
 
@@ -12,6 +14,7 @@ from functools import cached_property
 
 from dotenv import load_dotenv
 
+from agent import Agent, AgentAnswer
 from chroma_store import ChromaStore
 from embeddings import Embedder
 from generator import Answer, Generator
@@ -69,6 +72,11 @@ class RAG:
         # Created on first use, so `search` works without an API key.
         return Generator()
 
+    @cached_property
+    def agent(self) -> Agent:
+        # The agent's search tool is this class's own search method.
+        return Agent(search=self.search)
+
     def search(self, question: str, k: int = 4) -> list[SearchResult]:
         query_vector = self.embedder.embed([question])[0]
         return self.store.search(query_vector, k)
@@ -107,6 +115,14 @@ def main() -> None:
     ask.add_argument("-k", type=int, default=4, help="number of chunks to send (default 4)")
     ask.add_argument("--show-prompt", action="store_true", help="print the exact prompt sent")
 
+    agent = commands.add_parser("agent", help="let Claude search the docs itself with a tool")
+    agent.add_argument("question")
+    agent.add_argument("--show-responses", action="store_true", help="print each raw Claude response")
+
+    compare = commands.add_parser("compare", help="run ask and agent on the same question")
+    compare.add_argument("question")
+    compare.add_argument("--show-responses", action="store_true", help="print each raw Claude response")
+
     args = parser.parse_args()
     rag = RAG(rebuild=args.rebuild)
 
@@ -128,6 +144,30 @@ def main() -> None:
 
         print("=== Chunks given to Claude ===\n")
         print_results(results, full=False)
+
+    elif args.command == "agent":
+        print("=== Agent searches ===\n")
+        print_agent_answer(rag.agent.run(args.question, show_responses=args.show_responses))
+
+    elif args.command == "compare":
+        print("=== 1) Fixed pipeline (step 5): one search, then answer ===\n")
+        answer, results = rag.ask(args.question)
+        sources = ", ".join(f"{r.chunk.source}#{r.chunk.index}" for r in results)
+        print(f"  🔎 search({args.question!r}) → {sources}\n")
+        print(answer.text)
+        print(f"\n(1 search, 1 API call, {answer.input_tokens} input / {answer.output_tokens} output tokens)\n")
+
+        print("=== 2) Agent (step 7): Claude decides what to search ===\n")
+        print_agent_answer(rag.agent.run(args.question, show_responses=args.show_responses))
+
+
+def print_agent_answer(answer: AgentAnswer) -> None:
+    print("\n=== Answer ===\n")
+    print(answer.text)
+    print(
+        f"\n({len(answer.searches)} searches, {answer.turns} API calls, "
+        f"{answer.input_tokens} input / {answer.output_tokens} output tokens)\n"
+    )
 
 
 if __name__ == "__main__":

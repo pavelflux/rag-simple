@@ -26,29 +26,37 @@ class Answer:
     output_tokens: int
 
 
+def create_client() -> anthropic.Anthropic:
+    """An Anthropic client; reads ANTHROPIC_API_KEY automatically."""
+    # Keys that aren't tied to a workspace must say which workspace to use on every request.
+    workspace_id = os.getenv("ANTHROPIC_WORKSPACE_ID")
+    headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
+    return anthropic.Anthropic(default_headers=headers)
+
+
+def format_documents(results: list[SearchResult]) -> str:
+    """Wrap each chunk in a <document> tag carrying its source file and section."""
+    documents = []
+    for result in results:
+        chunk = result.chunk
+        documents.append(
+            f'<document source="{chunk.source}" section="{chunk.heading}">\n'
+            f"{chunk.text}\n"
+            f"</document>"
+        )
+    return "\n\n".join(documents)
+
+
 class Generator:
     """Sends the question plus retrieved chunks to Claude and returns its answer."""
 
     def __init__(self, model: str = MODEL):
-        # Keys that aren't tied to a workspace must say which workspace to use on every request.
-        workspace_id = os.getenv("ANTHROPIC_WORKSPACE_ID")
-        headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
-
-        self.client = anthropic.Anthropic(default_headers=headers)  # reads ANTHROPIC_API_KEY automatically
+        self.client = create_client()
         self.model = model
 
     def build_prompt(self, question: str, results: list[SearchResult]) -> str:
-        """Wrap each chunk in a tag with its source, then put the question last."""
-        documents = []
-        for result in results:
-            chunk = result.chunk
-            documents.append(
-                f'<document source="{chunk.source}" section="{chunk.heading}">\n'
-                f"{chunk.text}\n"
-                f"</document>"
-            )
-        context = "\n\n".join(documents)
-        return f"<context>\n{context}\n</context>\n\nQuestion: {question}"
+        """Put the chunks inside <context>, then the question last."""
+        return f"<context>\n{format_documents(results)}\n</context>\n\nQuestion: {question}"
 
     def answer(self, question: str, results: list[SearchResult]) -> Answer:
         response = self.client.beta.messages.create(

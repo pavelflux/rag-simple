@@ -3,3 +3,4 @@
 .idea/
 __pycache__/
 chroma_db/
+agent_responses.json
