@@ -41,18 +41,21 @@ SEARCH_TOOL = {
     "strict": True,  # guarantees Claude's tool input matches the schema exactly
 }
 
+# Every tool Claude may use. Each one needs a matching entry in Agent.tool_handlers.
+TOOLS = [SEARCH_TOOL]
+
 
 @dataclass
 class AgentAnswer:
     text: str
-    searches: list[str] = field(default_factory=list)  # every query Claude ran, in order
+    tool_calls: list[str] = field(default_factory=list)  # every tool call Claude made, in order
     turns: int = 0  # number of API calls
     input_tokens: int = 0
     output_tokens: int = 0
 
 
 class Agent:
-    """Runs the agent loop: call Claude → run the searches it asks for → send results back → repeat."""
+    """Runs the agent loop: call Claude → run the tools it asks for → send results back → repeat."""
 
     def __init__(
         self,
@@ -67,6 +70,34 @@ class Agent:
         self.k = k
         self.max_turns = max_turns  # safety limit so a confused agent can't loop forever
 
+        # Tool name (as in the tool definition) → method that runs it.
+        # To add a tool: add its definition to TOOLS and its method here.
+        self.tool_handlers = {
+            "search_docs": self._search_docs,
+        }
+
+    def _run_tool(self, name: str, tool_input: dict, verbose: bool) -> tuple[str, bool]:
+        """Run one tool call. Returns (content, is_error).
+
+        Every tool_use must get a tool_result, even when something goes wrong, otherwise the
+        next API call is rejected. So failures become error results that Claude can read.
+        """
+        handler = self.tool_handlers.get(name)
+        if handler is None:
+            return f"Unknown tool: {name}", True
+        try:
+            return handler(tool_input, verbose), False
+        except Exception as error:
+            return f"Tool {name} failed: {error}", True
+
+    def _search_docs(self, tool_input: dict, verbose: bool) -> str:
+        query = tool_input["query"]
+        results = self.search(query, self.k)
+        if verbose:
+            sources = ", ".join(f"{r.chunk.source}#{r.chunk.index}" for r in results)
+            print(f"  🔎 search_docs({query!r}) → {sources}")
+        return format_documents(results)
+
     def run(self, question: str, verbose: bool = True, show_responses: bool = False) -> AgentAnswer:
         answer = AgentAnswer(text="")
         # The conversation so far. It grows every turn and is sent in full on every call.
@@ -78,7 +109,7 @@ class Agent:
                 model=self.model,
                 max_tokens=16000,
                 system=SYSTEM_PROMPT,
-                tools=[SEARCH_TOOL],
+                tools=TOOLS,
                 messages=messages,
                 # Thinking is always on; "summarized" returns a readable summary of it instead of
                 # an empty block. It only changes what we see, not how Claude thinks.
@@ -102,22 +133,19 @@ class Agent:
             if response.stop_reason != "tool_use":
                 break  # Claude answered (or refused) instead of asking for another search
 
-            # Claude may ask for several searches in one reply. Run them all and send
+            # Claude may ask for several tool calls in one reply. Run them all and send
             # every result back together in a single user message.
             tool_results = []
             for block in response.content:
                 if block.type != "tool_use":
                     continue
-                query = block.input["query"]
-                results = self.search(query, self.k)
-                answer.searches.append(query)
-                if verbose:
-                    sources = ", ".join(f"{r.chunk.source}#{r.chunk.index}" for r in results)
-                    print(f"  🔎 search_docs({query!r}) → {sources}")
+                answer.tool_calls.append(f"{block.name}({block.input})")
+                content, is_error = self._run_tool(block.name, block.input, verbose)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,  # links this result to the call that asked for it
-                    "content": format_documents(results),
+                    "content": content,
+                    "is_error": is_error,  # True tells Claude the call failed, so it can adapt
                 })
             messages.append({"role": "user", "content": tool_results})
 

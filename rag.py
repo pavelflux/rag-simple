@@ -165,7 +165,7 @@ def print_agent_answer(answer: AgentAnswer) -> None:
     print("\n=== Answer ===\n")
     print(answer.text)
     print(
-        f"\n({len(answer.searches)} searches, {answer.turns} API calls, "
+        f"\n({len(answer.tool_calls)} tool calls, {answer.turns} API calls, "
         f"{answer.input_tokens} input / {answer.output_tokens} output tokens)\n"
     )
 
