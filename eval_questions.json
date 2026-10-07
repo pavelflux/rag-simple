@@ -1,0 +1,50 @@
+[
+  {
+    "question": "How much time off do new parents get?",
+    "expected_sources": ["employee_handbook.md"]
+  },
+  {
+    "question": "Can I skip coming to the office some days?",
+    "expected_sources": ["employee_handbook.md"]
+  },
+  {
+    "question": "Is there a budget for my desk and chair at home?",
+    "expected_sources": ["employee_handbook.md"]
+  },
+  {
+    "question": "What's the heaviest load a Loopy robot can lift?",
+    "expected_sources": ["product_faq.txt"]
+  },
+  {
+    "question": "How quickly does support respond when the whole fleet stops?",
+    "expected_sources": ["product_faq.txt"]
+  },
+  {
+    "question": "How long does it take to roll out robots in a new warehouse?",
+    "expected_sources": ["product_faq.txt"]
+  },
+  {
+    "question": "Who started the company?",
+    "expected_sources": ["company_overview.md"]
+  },
+  {
+    "question": "Which investor led the latest funding round?",
+    "expected_sources": ["company_overview.md"]
+  },
+  {
+    "question": "What should I do if my work computer gets stolen?",
+    "expected_sources": ["security_policy.pdf"]
+  },
+  {
+    "question": "Is MFA required for GitHub?",
+    "expected_sources": ["security_policy.pdf"]
+  },
+  {
+    "question": "What's the hotel limit in Paris and how fast do robots move near people?",
+    "expected_sources": ["employee_handbook.md", "product_faq.txt"]
+  },
+  {
+    "question": "Can visitors take photos, and how many people work at the company?",
+    "expected_sources": ["security_policy.pdf", "company_overview.md"]
+  }
+]
