@@ -5,7 +5,7 @@ Usage:
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from rag import RAG
@@ -18,6 +18,10 @@ K_VALUES = [1, 3, 5]  # measure "is the right file in the top k?" for each of th
 class EvalCase:
     question: str
     expected_sources: list[str]  # file(s) that contain the answer
+    # Only for cases whose answers are also graded by an LLM judge (step 9, evaluate_answers.py):
+    requires_llm_eval: bool = False
+    reference_answer: str = ""  # what a correct answer says
+    rubric: list[str] = field(default_factory=list)  # concrete points the judge checks one by one
 
 
 @dataclass

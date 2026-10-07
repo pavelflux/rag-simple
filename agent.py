@@ -14,7 +14,8 @@ You cannot see the documents directly. Use the search_docs tool to find relevant
 
 - Search before answering. Split multi-part or vague questions into several focused searches.
 - If the results don't contain what you need, search again with different wording.
-- Use only information from search results. Do not use outside knowledge.
+- Use only information from search results for company rules and facts.
+- If applying a rule needs a general fact the documents don't contain (for example a flight duration), you may use it, but say clearly that it's an assumption and not from the documents.
 - Cite the source file name in square brackets after each fact, e.g. [employee_handbook.md].
 - If you can't find the answer after a few searches, reply: "I don't know based on the provided documents."
 - Keep answers short and direct."""
@@ -49,6 +50,7 @@ TOOLS = [SEARCH_TOOL]
 class AgentAnswer:
     text: str
     tool_calls: list[str] = field(default_factory=list)  # every tool call Claude made, in order
+    retrieved: list[SearchResult] = field(default_factory=list)  # every chunk Claude was shown
     turns: int = 0  # number of API calls
     input_tokens: int = 0
     output_tokens: int = 0
@@ -69,6 +71,7 @@ class Agent:
         self.model = model
         self.k = k
         self.max_turns = max_turns  # safety limit so a confused agent can't loop forever
+        self.retrieved: list[SearchResult] = []  # chunks returned by searches in the current run
 
         # Tool name (as in the tool definition) → method that runs it.
         # To add a tool: add its definition to TOOLS and its method here.
@@ -93,6 +96,7 @@ class Agent:
     def _search_docs(self, tool_input: dict, verbose: bool) -> str:
         query = tool_input["query"]
         results = self.search(query, self.k)
+        self.retrieved.extend(results)  # remembered for this run, see run()
         if verbose:
             sources = ", ".join(f"{r.chunk.source}#{r.chunk.index}" for r in results)
             print(f"  🔎 search_docs({query!r}) → {sources}")
@@ -100,6 +104,7 @@ class Agent:
 
     def run(self, question: str, verbose: bool = True, show_responses: bool = False) -> AgentAnswer:
         answer = AgentAnswer(text="")
+        self.retrieved = answer.retrieved  # _search_docs appends every chunk it returns here
         # The conversation so far. It grows every turn and is sent in full on every call.
         messages = [{"role": "user", "content": question}]
         raw_responses = []  # every API response as plain JSON, saved to a file at the end

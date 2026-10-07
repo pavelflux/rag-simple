@@ -46,5 +46,30 @@
   {
     "question": "Can visitors take photos, and how many people work at the company?",
     "expected_sources": ["security_policy.pdf", "company_overview.md"]
+  },
+  {
+    "question": "I'm flying from Tallinn to a customer site in Lyon for 3 nights. What's the most I can expense for hotel and meals, and can I book business class?",
+    "expected_sources": ["employee_handbook.md"],
+    "requires_llm_eval": true,
+    "reference_answer": "Hotel is capped at 150 euros per night, because Lyon is not one of the 200-euro cities (London, Paris, New York, San Francisco), so at most 450 euros for 3 nights. Meals: 60 euros per day, so 180 euros for 3 days or 240 euros for 4 travel days; the documents don't define how travel days are counted. Business class is not allowed: flights are economy, with premium economy only for flights longer than 6 hours.",
+    "rubric": [
+      "Uses a hotel cap of 150 euros per night for Lyon, not 200 euros (Lyon is not one of the higher-cap cities).",
+      "Gives a hotel maximum of 450 euros for 3 nights.",
+      "Gives the meal allowance as 60 euros per day, and either states the number of days its total assumes or says the total depends on the number of travel days.",
+      "Says business class is not allowed: flights are economy, with premium economy only for flights over 6 hours.",
+      "Every company rule or fact is supported by the documents shown to the assistant, with nothing invented (e.g. no made-up rules about business class or about Lyon). Any general knowledge (e.g. a flight duration) is clearly marked as an assumption, not presented as coming from the documents."
+    ]
+  },
+  {
+    "question": "Our forklifts and Loopy robots share the same lanes. What speed do the robots drive at in forklift lanes?",
+    "expected_sources": ["product_faq.txt"],
+    "requires_llm_eval": true,
+    "reference_answer": "The premise is wrong: robots never drive in forklift lanes. Forklift lanes must be marked as restricted zones in Loopcloud, and robots never enter restricted zones. Physical barriers are recommended where forklifts and robots cross often. (The 1 m/s limit applies to areas shared with people, not to forklift lanes.)",
+    "rubric": [
+      "Corrects the false premise: says robots never enter forklift lanes or restricted zones.",
+      "Says forklift lanes must be marked as restricted zones in Loopcloud.",
+      "Does not give a robot driving speed for forklift lanes. Mentioning 1 m/s only as the limit for areas shared with people is fine.",
+      "Every company rule or fact is supported by the documents shown to the assistant, with nothing invented. Any general knowledge is clearly marked as an assumption, not presented as coming from the documents."
+    ]
   }
 ]
