@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from costs import CostTracker
 from generator import MODEL, create_client, format_documents
 from vector_store import SearchResult
 
@@ -51,9 +52,19 @@ class AgentAnswer:
     text: str
     tool_calls: list[str] = field(default_factory=list)  # every tool call Claude made, in order
     retrieved: list[SearchResult] = field(default_factory=list)  # every chunk Claude was shown
-    turns: int = 0  # number of API calls
-    input_tokens: int = 0
-    output_tokens: int = 0
+    costs: CostTracker = field(default_factory=CostTracker)  # tokens and $ of every API call
+
+    @property
+    def turns(self) -> int:  # number of API calls
+        return len(self.costs.calls)
+
+    @property
+    def input_tokens(self) -> int:
+        return self.costs.input_tokens
+
+    @property
+    def output_tokens(self) -> int:
+        return self.costs.output_tokens
 
 
 class Agent:
@@ -65,12 +76,14 @@ class Agent:
         model: str = MODEL,
         k: int = 4,
         max_turns: int = 6,
+        max_cost: float | None = None,
     ):
         self.search = search  # the RAG.search method from rag.py
         self.client = create_client()
         self.model = model
         self.k = k
         self.max_turns = max_turns  # safety limit so a confused agent can't loop forever
+        self.max_cost = max_cost  # budget in $ per run; None means no budget
         self.retrieved: list[SearchResult] = []  # chunks returned by searches in the current run
 
         # Tool name (as in the tool definition) → method that runs it.
@@ -108,6 +121,7 @@ class Agent:
         # The conversation so far. It grows every turn and is sent in full on every call.
         messages = [{"role": "user", "content": question}]
         raw_responses = []  # every API response as plain JSON, saved to a file at the end
+        over_budget = False
 
         for _ in range(self.max_turns):
             response = self.client.beta.messages.create(
@@ -125,9 +139,7 @@ class Agent:
                 betas=["server-side-fallback-2026-07-01"],
                 fallbacks="default",
             )
-            answer.turns += 1
-            answer.input_tokens += response.usage.input_tokens
-            answer.output_tokens += response.usage.output_tokens
+            answer.costs.add(response)
             if show_responses:
                 self._print_response(response, answer.turns)
                 raw_responses.append(response.to_dict())  # the SDK object as a plain dict
@@ -137,6 +149,12 @@ class Agent:
 
             if response.stop_reason != "tool_use":
                 break  # Claude answered (or refused) instead of asking for another search
+
+            # Budget check. We only learn a call's cost after it returns, so a run can go
+            # over the budget by up to one call; this stops it from making the next one.
+            if self.max_cost is not None and answer.costs.cost >= self.max_cost:
+                over_budget = True
+                break
 
             # Claude may ask for several tool calls in one reply. Run them all and send
             # every result back together in a single user message.
@@ -156,6 +174,11 @@ class Agent:
 
         if response.stop_reason == "refusal":
             answer.text = "(Claude declined to answer this request.)"
+        elif over_budget:
+            answer.text = (
+                f"(Stopped: budget of ${self.max_cost:.4f} reached after {answer.turns} API calls "
+                f"(${answer.costs.cost:.4f} spent), before a final answer.)"
+            )
         elif response.stop_reason == "tool_use":
             answer.text = f"(Stopped after {self.max_turns} turns without a final answer.)"
         else:

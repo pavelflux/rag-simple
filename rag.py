@@ -3,7 +3,7 @@
 Usage:
     python rag.py search "how many vacation days do I get?" [-k 4] [--full] [--split]
     python rag.py ask "how many vacation days do I get?" [-k 4] [--show-prompt] [--split]
-    python rag.py agent "how many vacation days do I get?"
+    python rag.py agent "how many vacation days do I get?" [--max-cost 0.02]
     python rag.py compare "how many vacation days do I get?"    # ask vs agent, side by side
     python rag.py --rebuild search "..."    # throw away the saved index and rebuild it
 """
@@ -16,8 +16,9 @@ from dotenv import load_dotenv
 
 from agent import Agent, AgentAnswer
 from chroma_store import ChromaStore
+from costs import cost_of
 from embeddings import Embedder
-from generator import Answer, Generator
+from generator import MODEL, Answer, Generator
 from ingest import Chunker, Document, DocumentLoader
 from query_rewriter import QueryRewriter
 from vector_store import SearchResult
@@ -150,13 +151,17 @@ def main() -> None:
     agent = commands.add_parser("agent", help="let Claude search the docs itself with a tool")
     agent.add_argument("question")
     agent.add_argument("--show-responses", action="store_true", help="print each raw Claude response")
+    agent.add_argument("--max-cost", type=float, help="budget in $ for this run, e.g. 0.02")
 
     compare = commands.add_parser("compare", help="run ask and agent on the same question")
     compare.add_argument("question")
     compare.add_argument("--show-responses", action="store_true", help="print each raw Claude response")
+    compare.add_argument("--max-cost", type=float, help="budget in $ for the agent run, e.g. 0.02")
 
     args = parser.parse_args()
     rag = RAG(rebuild=args.rebuild)
+    if getattr(args, "max_cost", None) is not None:
+        rag.agent.max_cost = args.max_cost
 
     if args.command == "search":
         print(f"Searching {len(rag.store)} chunks for: {args.query!r}\n")
@@ -172,7 +177,8 @@ def main() -> None:
 
         print("=== Answer ===\n")
         print(answer.text)
-        print(f"\n({answer.input_tokens} input tokens, {answer.output_tokens} output tokens)\n")
+        cost = cost_of(MODEL, answer.input_tokens, answer.output_tokens)
+        print(f"\n({answer.input_tokens} input tokens, {answer.output_tokens} output tokens, ${cost:.4f})\n")
 
         print("=== Chunks given to Claude ===\n")
         print_results(results, full=False)
@@ -187,7 +193,11 @@ def main() -> None:
         sources = ", ".join(f"{r.chunk.source}#{r.chunk.index}" for r in results)
         print(f"  🔎 search({args.question!r}) → {sources}\n")
         print(answer.text)
-        print(f"\n(1 search, 1 API call, {answer.input_tokens} input / {answer.output_tokens} output tokens)\n")
+        cost = cost_of(MODEL, answer.input_tokens, answer.output_tokens)
+        print(
+            f"\n(1 search, 1 API call, {answer.input_tokens} input / {answer.output_tokens} output tokens, "
+            f"${cost:.4f})\n"
+        )
 
         print("=== 2) Agent (step 7): Claude decides what to search ===\n")
         print_agent_answer(rag.agent.run(args.question, show_responses=args.show_responses))
@@ -196,10 +206,10 @@ def main() -> None:
 def print_agent_answer(answer: AgentAnswer) -> None:
     print("\n=== Answer ===\n")
     print(answer.text)
-    print(
-        f"\n({len(answer.tool_calls)} tool calls, {answer.turns} API calls, "
-        f"{answer.input_tokens} input / {answer.output_tokens} output tokens)\n"
-    )
+    print(f"\n({len(answer.tool_calls)} tool calls, {answer.turns} API calls)\n")
+    print("=== Cost per API call ===\n")
+    answer.costs.print_table()
+    print()
 
 
 if __name__ == "__main__":

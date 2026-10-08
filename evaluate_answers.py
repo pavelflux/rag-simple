@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from costs import cost_of
 from evaluate import EvalCase, Evaluator
 from generator import MODEL, create_client, format_documents
 from rag import RAG
@@ -22,9 +23,6 @@ from vector_store import SearchResult
 
 JUDGE_MODEL = "claude-opus-5-5"  # stronger than, and different from, the model being graded
 RESULTS_FILE = "answer_eval_results.json"
-
-# $ per million tokens (input, output), used for the cost estimate at the end.
-PRICES = {"claude-sonnet-5-5": (2.00, 10.00), "claude-opus-5-5": (4.00, 20.00)}
 
 JUDGE_SYSTEM_PROMPT = """You grade answers written by an assistant that answers questions from company documents.
 
@@ -198,10 +196,8 @@ class AnswerEvaluator:
             question = case.question if len(case.question) <= 58 else case.question[:57] + "…"
             print(f"  {question:<60} {scores.get('ask', '–'):<7} {scores.get('agent', '–'):<7}")
 
-        answer_cost = sum(self._cost(MODEL, r.input_tokens, r.output_tokens) for r in results)
-        judge_cost = sum(
-            self._cost(JUDGE_MODEL, r.verdict.input_tokens, r.verdict.output_tokens) for r in results
-        )
+        answer_cost = sum(cost_of(MODEL, r.input_tokens, r.output_tokens) for r in results)
+        judge_cost = sum(cost_of(JUDGE_MODEL, r.verdict.input_tokens, r.verdict.output_tokens) for r in results)
         print(
             f"\n  Estimated cost of this run: ${answer_cost + judge_cost:.3f} "
             f"(answers ${answer_cost:.3f}, judge ${judge_cost:.3f})"
@@ -209,11 +205,6 @@ class AnswerEvaluator:
 
         self._save(results)
         print(f"  Full results saved to {RESULTS_FILE}")
-
-    @staticmethod
-    def _cost(model: str, input_tokens: int, output_tokens: int) -> float:
-        input_price, output_price = PRICES[model]
-        return (input_tokens * input_price + output_tokens * output_price) / 1_000_000
 
     @staticmethod
     def _save(results: list[AnswerResult]) -> None:
