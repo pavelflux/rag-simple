@@ -4,10 +4,12 @@ Each of those cases is answered twice, by the fixed pipeline (step 5, `ask`) and
 agent (step 7). A different, stronger model then checks every answer against the case's rubric.
 
 Usage:
-    python evaluate_answers.py
+    python evaluate_answers.py            # ask mode uses plain search
+    python evaluate_answers.py --split    # ask mode splits the question into topics first
 """
 
 import json
+import sys
 import time
 from dataclasses import dataclass
 
@@ -137,14 +139,15 @@ class AnswerEvaluator:
 
     MODES = ["ask", "agent"]
 
-    def __init__(self, rag: RAG, judge: Judge):
+    def __init__(self, rag: RAG, judge: Judge, split: bool = False):
         self.rag = rag
         self.judge = judge
+        self.split = split  # ask mode: split the question into topics before searching
 
     def answer(self, case: EvalCase, mode: str) -> tuple[str, list[SearchResult], int, int]:
         """Returns (answer text, chunks shown, input tokens, output tokens)."""
         if mode == "ask":
-            answer, results = self.rag.ask(case.question)
+            answer, results = self.rag.ask(case.question, split=self.split)
             return answer.text, results, answer.input_tokens, answer.output_tokens
 
         agent_answer = self.rag.agent.run(case.question)
@@ -156,7 +159,8 @@ class AnswerEvaluator:
         results = []
         for case in cases:
             for mode in self.MODES:
-                print(f"\n━━ [{mode}] {case.question}\n")
+                label = "ask --split" if mode == "ask" and self.split else mode
+                print(f"\n━━ [{label}] {case.question}\n")
                 start = time.time()
                 text, shown, input_tokens, output_tokens = self.answer(case, mode)
                 seconds = time.time() - start
@@ -234,7 +238,8 @@ class AnswerEvaluator:
 
 if __name__ == "__main__":
     load_dotenv()  # rag.py only loads .env when run directly, so load it here too
+    split = "--split" in sys.argv
     cases = [case for case in Evaluator.load_cases() if case.requires_llm_eval]
     print(f"Grading answers for {len(cases)} cases × {len(AnswerEvaluator.MODES)} modes with {JUDGE_MODEL}")
-    evaluator = AnswerEvaluator(RAG(), Judge())
+    evaluator = AnswerEvaluator(RAG(), Judge(), split=split)
     evaluator.report(evaluator.run(cases))

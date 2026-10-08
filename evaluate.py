@@ -1,12 +1,16 @@
 """Step 8: measure retrieval quality. Does search find the right file for each test question?
 
 Usage:
-    python evaluate.py
+    python evaluate.py            # plain search
+    python evaluate.py --split    # split each question into topics first (query decomposition)
 """
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 from rag import RAG
 
@@ -48,9 +52,10 @@ class EvalResult:
 class Evaluator:
     """Runs every test question through retrieval and scores where the expected files landed."""
 
-    def __init__(self, rag: RAG, k_values: list[int] = K_VALUES):
+    def __init__(self, rag: RAG, k_values: list[int] = K_VALUES, split: bool = False):
         self.rag = rag
         self.k_values = k_values
+        self.split = split  # split each question into topics before searching (query decomposition)
 
     @staticmethod
     def load_cases(path: Path = QUESTIONS_FILE) -> list[EvalCase]:
@@ -62,7 +67,7 @@ class Evaluator:
         max_k = max(self.k_values)
         results = []
         for case in cases:
-            found = self.rag.search(case.question, max_k)
+            found = self.rag.search(case.question, max_k, self.split)
             results.append(EvalResult(case, [r.chunk.source for r in found]))
         return results
 
@@ -110,8 +115,13 @@ class Evaluator:
 
 
 if __name__ == "__main__":
-    evaluator = Evaluator(RAG())
+    split = "--split" in sys.argv
+    if split:
+        load_dotenv()  # splitting calls Claude, so it needs the API key from .env
+
+    evaluator = Evaluator(RAG(), split=split)
     cases = evaluator.load_cases()
-    print(f"Evaluating retrieval on {len(cases)} questions\n")
+    mode = "with query splitting" if split else "plain search"
+    print(f"Evaluating retrieval on {len(cases)} questions ({mode})\n")
     run_result = evaluator.run(cases)
     evaluator.report(run_result)

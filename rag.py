@@ -1,8 +1,8 @@
 """Command-line entry point for the RAG app.
 
 Usage:
-    python rag.py search "how many vacation days do I get?" [-k 4] [--full]
-    python rag.py ask "how many vacation days do I get?" [-k 4] [--show-prompt]
+    python rag.py search "how many vacation days do I get?" [-k 4] [--full] [--split]
+    python rag.py ask "how many vacation days do I get?" [-k 4] [--show-prompt] [--split]
     python rag.py agent "how many vacation days do I get?"
     python rag.py compare "how many vacation days do I get?"    # ask vs agent, side by side
     python rag.py --rebuild search "..."    # throw away the saved index and rebuild it
@@ -19,6 +19,7 @@ from chroma_store import ChromaStore
 from embeddings import Embedder
 from generator import Answer, Generator
 from ingest import Chunker, Document, DocumentLoader
+from query_rewriter import QueryRewriter
 from vector_store import SearchResult
 
 
@@ -77,13 +78,42 @@ class RAG:
         # The agent's search tool is this class's own search method.
         return Agent(search=self.search)
 
-    def search(self, question: str, k: int = 4) -> list[SearchResult]:
+    @cached_property
+    def rewriter(self) -> QueryRewriter:
+        # Created on first use, so searches without --split need no API key.
+        return QueryRewriter()
+
+    def search(self, question: str, k: int = 4, split: bool = False) -> list[SearchResult]:
+        if split:
+            return self.split_search(question, k)
         query_vector = self.embedder.embed([question])[0]
         return self.store.search(query_vector, k)
 
-    def ask(self, question: str, k: int = 4) -> tuple[Answer, list[SearchResult]]:
+    def split_search(self, question: str, k: int = 4) -> list[SearchResult]:
+        """Split the question into one query per topic, search each, and merge the results.
+
+        Results are merged round-robin: the best chunk of every query first, then every
+        query's second-best, and so on. That way each topic gets a place in the top k,
+        instead of one topic filling all the slots.
+        """
+        queries = self.rewriter.split(question)
+        print(f"  ✂️  split into {queries}")
+        per_query = [self.search(query, k) for query in queries]
+
+        merged, seen = [], set()
+        for position in range(k):
+            for results in per_query:
+                if position < len(results):
+                    result = results[position]
+                    key = (result.chunk.source, result.chunk.index)
+                    if key not in seen:  # the same chunk can be found by several queries
+                        seen.add(key)
+                        merged.append(result)
+        return merged[:k]  # same number of chunks as a normal search, so results are comparable
+
+    def ask(self, question: str, k: int = 4, split: bool = False) -> tuple[Answer, list[SearchResult]]:
         """Retrieve the top-k chunks, then let Claude answer from them."""
-        results = self.search(question, k)
+        results = self.search(question, k, split)
         return self.generator.answer(question, results), results
 
 
@@ -109,11 +139,13 @@ def main() -> None:
     search.add_argument("query")
     search.add_argument("-k", type=int, default=4, help="number of results (default 4)")
     search.add_argument("--full", action="store_true", help="print whole chunks, not previews")
+    search.add_argument("--split", action="store_true", help="split the query into topics first")
 
     ask = commands.add_parser("ask", help="answer a question with Claude, using retrieved chunks")
     ask.add_argument("question")
     ask.add_argument("-k", type=int, default=4, help="number of chunks to send (default 4)")
     ask.add_argument("--show-prompt", action="store_true", help="print the exact prompt sent")
+    ask.add_argument("--split", action="store_true", help="split the question into topics first")
 
     agent = commands.add_parser("agent", help="let Claude search the docs itself with a tool")
     agent.add_argument("question")
@@ -128,10 +160,10 @@ def main() -> None:
 
     if args.command == "search":
         print(f"Searching {len(rag.store)} chunks for: {args.query!r}\n")
-        print_results(rag.search(args.query, args.k), args.full)
+        print_results(rag.search(args.query, args.k, args.split), args.full)
 
     elif args.command == "ask":
-        answer, results = rag.ask(args.question, args.k)
+        answer, results = rag.ask(args.question, args.k, args.split)
 
         if args.show_prompt:
             print("=== Prompt sent to Claude ===\n")

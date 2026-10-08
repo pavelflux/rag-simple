@@ -70,31 +70,52 @@ class Chunker:
         return chunks
 
     def _split_sections(self, text: str) -> list[tuple[str, str]]:
-        """Split at markdown headings into (heading, body) pairs.
+        """Split at headings into (heading, body) pairs.
 
-        Nested headings become a path like "Handbook > Paid Time Off > Sick Leave".
-        Files without headings (our .txt and .pdf) come back as one section with heading "".
+        Two kinds of headings start a new section:
+        - markdown headings ("## Paid Time Off"). Nested ones become a path like
+          "Handbook > Paid Time Off > Sick Leave".
+        - FAQ-style question lines: a short line that ends with "?" and follows a blank line,
+          as in our product_faq.txt. Each question and its answer become their own section,
+          so one chunk covers one Q&A instead of mixing several topics.
+        Files with neither (our .pdf) come back as one section with heading "".
         """
         sections = []
-        heading_stack = []  # the current heading at each level
+        heading_stack = []  # the current markdown heading at each level
+        question = ""  # the current FAQ question, if any
         lines = []
 
         def flush():
             body = "\n".join(lines).strip()
             if body:  # skip headings that have no text directly under them
-                sections.append((" > ".join(heading_stack), body))
+                sections.append((" > ".join(heading_stack + ([question] if question else [])), body))
             lines.clear()
 
+        previous_blank = True  # the start of the text counts as following a blank line
         for line in text.splitlines():
             match = re.match(r"^(#{1,6})\s+(.*)", line)
             if match:
                 flush()
                 level = len(match.group(1))
                 heading_stack[:] = heading_stack[: level - 1] + [match.group(2).strip()]
+                question = ""
+            elif self._is_question(line, previous_blank):
+                flush()
+                question = line.strip()
+                # Unlike markdown headings, keep the question in the chunk text too: its wording
+                # is usually the closest match to how users ask, so it should be embedded.
+                lines.append(line)
             else:
                 lines.append(line)
+            previous_blank = not line.strip()
         flush()
         return sections
+
+    @staticmethod
+    def _is_question(line: str, previous_blank: bool) -> bool:
+        """An FAQ question line: starts a paragraph, ends with "?", and is short."""
+        stripped = line.strip()
+        return previous_blank and stripped.endswith("?") and len(stripped) <= 120
 
     def _split_paragraphs(self, text: str) -> list[str]:
         """Split on blank lines. Also strips the padding PDF extraction adds to each line."""
