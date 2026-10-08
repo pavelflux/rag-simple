@@ -12,6 +12,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+import colors
 from rag import RAG
 
 QUESTIONS_FILE = Path("eval_questions.json")
@@ -85,33 +86,41 @@ class Evaluator:
         rank_width = max(len(rank_header), *(len(text) for text in rank_texts))
 
         k_header = " ".join(f"@{k:<2}" for k in self.k_values)
-        print(f"{'Question':<{question_width}} {rank_header:<{rank_width}} {k_header}")
-        print("─" * (question_width + 1 + rank_width + 1 + len(k_header)))
+        print(colors.bold(f"{'Question':<{question_width}} {rank_header:<{rank_width}} {k_header}"))
+        print(colors.status("─" * (question_width + 1 + rank_width + 1 + len(k_header))))
 
+        k_check = self.k_values[len(self.k_values) // 2]  # the "middle" k, used to flag misses
         for result, rank_text in zip(results, rank_texts):
             question = result.case.question
             if len(question) > question_width - 2:
                 question = question[: question_width - 3] + "…"
             marks = " ".join(f"{'✅' if result.hit_at(k) else '❌':<3}" for k in self.k_values)
-            print(f"{question:<{question_width}} {rank_text:<{rank_width}} {marks}")
+
+            # Rank cell: red = a file missed the top k_check, yellow = found but not all at rank 1.
+            ranks = [result.rank_of(source) for source in result.case.expected_sources]
+            rank_cell = f"{rank_text:<{rank_width}}"  # pad first, then color
+            if not result.hit_at(k_check):
+                rank_cell = colors.bad(rank_cell)
+            elif any(rank != 1 for rank in ranks):
+                rank_cell = colors.score(rank_cell)
+            print(f"{question:<{question_width}} {rank_cell} {marks}")
 
         # Show what was retrieved instead, for questions that missed at the middle k.
-        k_check = self.k_values[len(self.k_values) // 2]
         misses = [r for r in results if not r.hit_at(k_check)]
         if misses:
-            print(f"\nMisses at k={k_check} (what was retrieved instead):")
+            print(colors.header(f"\nMisses at k={k_check} (what was retrieved instead):"))
             for result in misses:
-                print(f"  • {result.case.question}")
-                print(f"    expected: {', '.join(result.case.expected_sources)}")
-                print(f"    got:      {', '.join(result.retrieved_sources[:k_check])}")
+                print(f"  • {colors.bold(result.case.question)}")
+                print(colors.good(f"    expected: {', '.join(result.case.expected_sources)}"))
+                print(colors.bad(f"    got:      {', '.join(result.retrieved_sources[:k_check])}"))
 
-        print("\nSummary")
+        print(colors.header("\nSummary"))
         total = len(results)
         for k in self.k_values:
             hits = sum(r.hit_at(k) for r in results)
-            print(f"  hit rate @{k}: {hits}/{total} ({hits / total:.0%})")
+            print(f"  hit rate @{k}: " + colors.score(f"{hits}/{total} ({hits / total:.0%})"))
         mrr = sum(r.reciprocal_rank() for r in results) / total
-        print(f"  MRR:         {mrr:.2f}   (1.00 = the right file is always the top result)")
+        print("  MRR:         " + colors.score(f"{mrr:.2f}") + colors.status("   (1.00 = the right file is always the top result)"))
 
 
 if __name__ == "__main__":
@@ -122,6 +131,6 @@ if __name__ == "__main__":
     evaluator = Evaluator(RAG(), split=split)
     cases = evaluator.load_cases()
     mode = "with query splitting" if split else "plain search"
-    print(f"Evaluating retrieval on {len(cases)} questions ({mode})\n")
+    print(colors.header(f"Evaluating retrieval on {len(cases)} questions ({mode})\n"))
     run_result = evaluator.run(cases)
     evaluator.report(run_result)

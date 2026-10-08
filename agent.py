@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+import colors
 from costs import CostTracker
 from generator import MODEL, create_client, format_documents
 from vector_store import SearchResult
@@ -112,7 +113,7 @@ class Agent:
         self.retrieved.extend(results)  # remembered for this run, see run()
         if verbose:
             sources = ", ".join(f"{r.chunk.source}#{r.chunk.index}" for r in results)
-            print(f"  🔎 search_docs({query!r}) → {sources}")
+            print(colors.tool(f"  🔎 search_docs({query!r}) → {sources}"))
         return format_documents(results)
 
     def run(self, question: str, verbose: bool = True, show_responses: bool = False) -> AgentAnswer:
@@ -187,24 +188,27 @@ class Agent:
         if show_responses:
             with open(RAW_RESPONSES_FILE, "w", encoding="utf-8") as f:
                 json.dump(raw_responses, f, indent=2, ensure_ascii=False)
-            print(f"\n  Raw responses saved to {RAW_RESPONSES_FILE}")
+            print(colors.status(f"\n  Raw responses saved to {RAW_RESPONSES_FILE}"))
         return answer
 
     @staticmethod
     def _print_response(response, turn: int) -> None:
         """Show every content block of one Claude response, as Claude returned it."""
         usage = response.usage
+        frame = colors.magenta  # the box around one response
         print(
-            f"\n  ┌─ Claude response, call {turn} "
-            f"(stop_reason: {response.stop_reason}, {usage.input_tokens} in / {usage.output_tokens} out)"
+            frame(f"\n  ┌─ Claude response, call {turn} ")
+            + colors.status(
+                f"(stop_reason: {response.stop_reason}, {usage.input_tokens} in / {usage.output_tokens} out)"
+            )
         )
         for block in response.content:
             if block.type == "thinking":
-                print(f"  │ [thinking] {block.thinking.strip() or '(empty)'}")
+                print(frame("  │ ") + colors.dim(f"[thinking] {block.thinking.strip() or '(empty)'}"))
             elif block.type == "text":
-                print(f"  │ [text] {block.text.strip()}")
+                print(frame("  │ ") + f"[text] {block.text.strip()}")
             elif block.type == "tool_use":
-                print(f"  │ [tool_use] {block.name}({block.input})  id={block.id}")
+                print(frame("  │ ") + colors.tool(f"[tool_use] {block.name}({block.input})  id={block.id}"))
             else:
-                print(f"  │ [{block.type}]")
-        print("  └─")
+                print(frame("  │ ") + f"[{block.type}]")
+        print(frame("  └─"))

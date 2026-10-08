@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+import colors
+
 # $ per million tokens: (input, output). From Anthropic's pricing page; update when prices change.
 # Includes the fallback models, in case a request is served by one of them.
 PRICES = {
@@ -71,13 +73,14 @@ class CostTracker:
         return sum(call.cost for call in self.calls)
 
     def print_table(self) -> None:
-        print(f"  {'call':>4}  {'model':<18} {'stop_reason':<12} {'input':>8} {'output':>8} {'cost':>9}")
+        # Each cell is padded first, then colored, so the invisible color codes don't shift columns.
+        print(colors.status(f"  {'call':>4}  {'model':<18} {'stop_reason':<12} {'input':>8} {'output':>8} {'cost':>9}"))
         for number, call in enumerate(self.calls, start=1):
             print(
                 f"  {number:>4}  {call.model:<18} {call.stop_reason:<12} "
-                f"{call.input_tokens:>8,} {call.output_tokens:>8,} {f'${call.cost:.4f}':>9}"
+                f"{call.input_tokens:>8,} {call.output_tokens:>8,} " + colors.score(f"{f'${call.cost:.4f}':>9}")
             )
         print(
-            f"  {'total':>4}  {'':<18} {'':<12} "
-            f"{self.input_tokens:>8,} {self.output_tokens:>8,} {f'${self.cost:.4f}':>9}"
+            colors.bold(f"  {'total':>4}  {'':<18} {'':<12} {self.input_tokens:>8,} {self.output_tokens:>8,} ")
+            + colors.bold(colors.score(f"{f'${self.cost:.4f}':>9}"))
         )

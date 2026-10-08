@@ -14,6 +14,7 @@ from functools import cached_property
 
 from dotenv import load_dotenv
 
+import colors
 from agent import Agent, AgentAnswer
 from chroma_store import ChromaStore
 from costs import cost_of
@@ -51,17 +52,17 @@ class RAG:
             self.store.delete_source(doc.source)  # drop the old chunks, if any
             chunks = self.chunker.chunk([doc])
             self.store.add(chunks, self.embedder.embed([c.text for c in chunks]), doc_hash)
-            print(f"Indexed {doc.source} ({status}, {len(chunks)} chunks)")
+            print(colors.status(f"Indexed {doc.source} ({status}, {len(chunks)} chunks)"))
             changed = True
 
         # Files that were indexed before but no longer exist in ./docs.
         for source in indexed.keys() - {doc.source for doc in documents}:
             self.store.delete_source(source)
-            print(f"Removed {source} (file deleted)")
+            print(colors.status(f"Removed {source} (file deleted)"))
             changed = True
 
         if not changed:
-            print(f"Index up to date ({len(self.store)} chunks)")
+            print(colors.status(f"Index up to date ({len(self.store)} chunks)"))
         print()
 
     @staticmethod
@@ -98,7 +99,7 @@ class RAG:
         instead of one topic filling all the slots.
         """
         queries = self.rewriter.split(question)
-        print(f"  ✂️  split into {queries}")
+        print(colors.tool(f"  ✂️  split into {queries}"))
         per_query = [self.search(query, k) for query in queries]
 
         merged, seen = [], set()
@@ -122,12 +123,15 @@ def print_results(results: list[SearchResult], full: bool) -> None:
     for rank, result in enumerate(results, start=1):
         chunk = result.chunk
         heading = chunk.heading or "(no heading)"
-        print(f"{rank}. [{result.score:.3f}] {chunk.source} #{chunk.index} · {heading}")
+        print(
+            f"{rank}. {colors.score(f'[{result.score:.3f}]')} "
+            f"{colors.bold(f'{chunk.source} #{chunk.index}')} {colors.status(f'· {heading}')}"
+        )
         if full:
             print(chunk.text)
         else:
             preview = " ".join(chunk.text.split())  # collapse newlines for a one-line preview
-            print(f"   {preview[:160]}{'…' if len(preview) > 160 else ''}")
+            print(colors.status(f"   {preview[:160]}{'…' if len(preview) > 160 else ''}"))
         print()
 
 
@@ -164,50 +168,57 @@ def main() -> None:
         rag.agent.max_cost = args.max_cost
 
     if args.command == "search":
-        print(f"Searching {len(rag.store)} chunks for: {args.query!r}\n")
+        print(colors.status(f"Searching {len(rag.store)} chunks for: {args.query!r}\n"))
         print_results(rag.search(args.query, args.k, args.split), args.full)
 
     elif args.command == "ask":
         answer, results = rag.ask(args.question, args.k, args.split)
 
         if args.show_prompt:
-            print("=== Prompt sent to Claude ===\n")
+            print(colors.header("=== Prompt sent to Claude ===\n"))
             print(rag.generator.build_prompt(args.question, results))
             print()
 
-        print("=== Answer ===\n")
-        print(answer.text)
-        cost = cost_of(MODEL, answer.input_tokens, answer.output_tokens)
-        print(f"\n({answer.input_tokens} input tokens, {answer.output_tokens} output tokens, ${cost:.4f})\n")
-
-        print("=== Chunks given to Claude ===\n")
-        print_results(results, full=False)
-
-    elif args.command == "agent":
-        print("=== Agent searches ===\n")
-        print_agent_answer(rag.agent.run(args.question, show_responses=args.show_responses))
-
-    elif args.command == "compare":
-        print("=== 1) Fixed pipeline (step 5): one search, then answer ===\n")
-        answer, results = rag.ask(args.question)
-        sources = ", ".join(f"{r.chunk.source}#{r.chunk.index}" for r in results)
-        print(f"  🔎 search({args.question!r}) → {sources}\n")
+        print(colors.header("=== Answer ===\n"))
         print(answer.text)
         cost = cost_of(MODEL, answer.input_tokens, answer.output_tokens)
         print(
-            f"\n(1 search, 1 API call, {answer.input_tokens} input / {answer.output_tokens} output tokens, "
-            f"${cost:.4f})\n"
+            colors.status(f"\n({answer.input_tokens} input tokens, {answer.output_tokens} output tokens, ")
+            + colors.score(f"${cost:.4f}")
+            + colors.status(")\n")
         )
 
-        print("=== 2) Agent (step 7): Claude decides what to search ===\n")
+        print(colors.header("=== Chunks given to Claude ===\n"))
+        print_results(results, full=False)
+
+    elif args.command == "agent":
+        print(colors.header("=== Agent searches ===\n"))
+        print_agent_answer(rag.agent.run(args.question, show_responses=args.show_responses))
+
+    elif args.command == "compare":
+        print(colors.header("=== 1) Fixed pipeline (step 5): one search, then answer ===\n"))
+        answer, results = rag.ask(args.question)
+        sources = ", ".join(f"{r.chunk.source}#{r.chunk.index}" for r in results)
+        print(colors.tool(f"  🔎 search({args.question!r}) → {sources}\n"))
+        print(answer.text)
+        cost = cost_of(MODEL, answer.input_tokens, answer.output_tokens)
+        print(
+            colors.status(
+                f"\n(1 search, 1 API call, {answer.input_tokens} input / {answer.output_tokens} output tokens, "
+            )
+            + colors.score(f"${cost:.4f}")
+            + colors.status(")\n")
+        )
+
+        print(colors.header("=== 2) Agent (step 7): Claude decides what to search ===\n"))
         print_agent_answer(rag.agent.run(args.question, show_responses=args.show_responses))
 
 
 def print_agent_answer(answer: AgentAnswer) -> None:
-    print("\n=== Answer ===\n")
+    print(colors.header("\n=== Answer ===\n"))
     print(answer.text)
-    print(f"\n({len(answer.tool_calls)} tool calls, {answer.turns} API calls)\n")
-    print("=== Cost per API call ===\n")
+    print(colors.status(f"\n({len(answer.tool_calls)} tool calls, {answer.turns} API calls)\n"))
+    print(colors.header("=== Cost per API call ===\n"))
     answer.costs.print_table()
     print()
 

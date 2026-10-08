@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+import colors
 from costs import cost_of
 from evaluate import EvalCase, Evaluator
 from generator import MODEL, create_client, format_documents
@@ -158,7 +159,7 @@ class AnswerEvaluator:
         for case in cases:
             for mode in self.MODES:
                 label = "ask --split" if mode == "ask" and self.split else mode
-                print(f"\n━━ [{label}] {case.question}\n")
+                print(colors.header(f"\n━━ [{label}] {case.question}\n"))
                 start = time.time()
                 text, shown, input_tokens, output_tokens = self.answer(case, mode)
                 seconds = time.time() - start
@@ -170,41 +171,54 @@ class AnswerEvaluator:
         return results
 
     def print_result(self, result: AnswerResult) -> None:
-        print("  Answer:")
+        print(colors.bold("  Answer:"))
         for line in result.answer.strip().splitlines():
             print(f"    {line}")
 
         verdict = result.verdict
-        print(f"\n  Judge: {verdict.score} criteria passed")
+        all_passed = all(verdict.passed)
+        verdict_color = colors.good if all_passed else colors.bad
+        print(colors.bold("\n  Judge: ") + verdict_color(f"{verdict.score} criteria passed"))
         for i, (criterion, passed, reason) in enumerate(
             zip(result.case.rubric, verdict.passed, verdict.reasons), start=1
         ):
             short = criterion if len(criterion) <= 90 else criterion[:89] + "…"
-            print(f"    {'✅' if passed else '❌'} {i}. {short}")
-            print(f"         → {reason}")
-        print(f"  Judge summary: {verdict.summary}")
+            text = f"{i}. {short}"
+            print(f"    {'✅' if passed else '❌'} " + (text if passed else colors.bad(text)))
+            print(colors.status(f"         → {reason}"))
+        print(colors.bold("  Judge summary: ") + verdict.summary)
         print(
-            f"  ({result.seconds:.1f} s · answer {result.input_tokens} in / {result.output_tokens} out tokens"
-            f" · judge {verdict.input_tokens} in / {verdict.output_tokens} out)"
+            colors.status(
+                f"  ({result.seconds:.1f} s · answer {result.input_tokens} in / {result.output_tokens} out tokens"
+                f" · judge {verdict.input_tokens} in / {verdict.output_tokens} out)"
+            )
         )
 
     def report(self, results: list[AnswerResult]) -> None:
-        print("\n\nSummary (rubric criteria passed)\n")
-        print(f"  {'Case':<60} {'ask':<7} {'agent':<7}")
+        print(colors.header("\n\nSummary (rubric criteria passed)\n"))
+        print(colors.bold(f"  {'Case':<60} {'ask':<7} {'agent':<7}"))
         for case in {id(r.case): r.case for r in results}.values():
-            scores = {r.mode: r.verdict.score for r in results if r.case is case}
+            verdicts = {r.mode: r.verdict for r in results if r.case is case}
             question = case.question if len(case.question) <= 58 else case.question[:57] + "…"
-            print(f"  {question:<60} {scores.get('ask', '–'):<7} {scores.get('agent', '–'):<7}")
+            cells = []
+            for mode in self.MODES:
+                verdict = verdicts.get(mode)
+                cell = f"{verdict.score if verdict else '–':<7}"  # pad first, then color
+                if verdict:
+                    cell = colors.good(cell) if all(verdict.passed) else colors.bad(cell)
+                cells.append(cell)
+            print(f"  {question:<60} " + " ".join(cells))
 
         answer_cost = sum(cost_of(MODEL, r.input_tokens, r.output_tokens) for r in results)
         judge_cost = sum(cost_of(JUDGE_MODEL, r.verdict.input_tokens, r.verdict.output_tokens) for r in results)
         print(
-            f"\n  Estimated cost of this run: ${answer_cost + judge_cost:.3f} "
-            f"(answers ${answer_cost:.3f}, judge ${judge_cost:.3f})"
+            "\n  Estimated cost of this run: "
+            + colors.score(f"${answer_cost + judge_cost:.3f}")
+            + colors.status(f" (answers ${answer_cost:.3f}, judge ${judge_cost:.3f})")
         )
 
         self._save(results)
-        print(f"  Full results saved to {RESULTS_FILE}")
+        print(colors.status(f"  Full results saved to {RESULTS_FILE}"))
 
     @staticmethod
     def _save(results: list[AnswerResult]) -> None:
@@ -231,6 +245,6 @@ if __name__ == "__main__":
     load_dotenv()  # rag.py only loads .env when run directly, so load it here too
     split = "--split" in sys.argv
     cases = [case for case in Evaluator.load_cases() if case.requires_llm_eval]
-    print(f"Grading answers for {len(cases)} cases × {len(AnswerEvaluator.MODES)} modes with {JUDGE_MODEL}")
+    print(colors.header(f"Grading answers for {len(cases)} cases × {len(AnswerEvaluator.MODES)} modes with {JUDGE_MODEL}"))
     evaluator = AnswerEvaluator(RAG(), Judge(), split=split)
     evaluator.report(evaluator.run(cases))
